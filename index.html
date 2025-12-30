@@ -16,6 +16,10 @@
   
   <!-- Recharts for the chart -->
     <script src="https://unpkg.com/recharts@1.8.5/umd/Recharts.min.js"></script>
+      <script>
+              // Create Recharts global alias (Recharts 1.8.5 UMD uses window for individual components)
+              window.Recharts = { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer };
+      </script>
 
       <!-- Babel for JSX (dev only - in production you'd precompile) -->
       <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
