@@ -15,8 +15,13 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
   <!-- Recharts for the chart -->
-    <script src="https://unpkg.com/recharts@1.8.5/umd/Recharts.min.js" onload="window.Recharts = { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer };"></script>
-      <!-- Babel for JSX (dev only - in production you'd precompile) -->
+    <script src="https://unpkg.com/recharts@1.8.5/umd/Recharts.min.js"></script>
+      <script>
+              // Create Recharts global alias after library loads
+              setTimeout(() => {
+                        window.Recharts = { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer };
+              }, 100);
+      </script><!-- Babel for JSX (dev only - in production you'd precompile) -->
       <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     body {
