@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comfort Tracker | Gallavance</title>
+  <meta name="description" content="Personal wellness tracking for digestive comfort">
+  <meta name="robots" content="noindex, nofollow">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Recharts for the chart -->
+  <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+  
+  <!-- Babel for JSX (dev only - in production you'd precompile) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    /* Custom range slider */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      background: #e5e7eb;
+      height: 12px;
+      border-radius: 6px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      background: #009F60;
+      height: 24px;
+      width: 24px;
+      border-radius: 50%;
+      margin-top: -6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    input[type="range"]::-moz-range-track {
+      background: #e5e7eb;
+      height: 12px;
+      border-radius: 6px;
+    }
+    input[type="range"]::-moz-range-thumb {
+      background: #009F60;
+      height: 24px;
+      width: 24px;
+      border-radius: 50%;
+      border: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .fade-in {
+      animation: fadeIn 0.2s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } = Recharts;
+
+    const GallavanceComfortTracker = () => {
+      // Core State
+      const [view, setView] = useState('consent');
+      const [entries, setEntries] = useState([]);
+      const [checkInStep, setCheckInStep] = useState(1);
+      const [filter, setFilter] = useState('all');
+      
+      // Check-in Form State
+      const [formData, setFormData] = useState({
+        mealComfort: 5,
+        afterEating: 5,
+        regularity: null,
+        mealType: null,
+        tookSupplement: null,
+        note: '',
+      });
+
+      // Load from localStorage
+      useEffect(() => {
+        const stored = localStorage.getItem('gallavance_tracker_v2');
+        const consent = localStorage.getItem('gallavance_consent_v2');
+        if (stored) setEntries(JSON.parse(stored));
+        if (consent === 'true') setView('dashboard');
+      }, []);
+
+      // Save to localStorage
+      const saveEntries = (newEntries) => {
+        localStorage.setItem('gallavance_tracker_v2', JSON.stringify(newEntries));
+        setEntries(newEntries);
+      };
+
+      const acceptConsent = () => {
+        localStorage.setItem('gallavance_consent_v2', 'true');
+        setView('dashboard');
+      };
+
+      const clearAllData = () => {
+        if (window.confirm('This will permanently delete all your tracker data. This cannot be undone. Continue?')) {
+          localStorage.removeItem('gallavance_tracker_v2');
+          localStorage.removeItem('gallavance_consent_v2');
+          setEntries([]);
+          setView('consent');
+        }
+      };
+
+      const exportData = () => {
+        const csv = [
+          'Date,Meal Comfort,After Eating,Regularity,Meal Type,Took Supplement,Note',
+          ...entries.map(e => 
+            `${new Date(e.date).toLocaleDateString()},${e.mealComfort},${e.afterEating},${e.regularity},${e.mealType},${e.tookSupplement},${(e.note || '').replace(/,/g, ';')}`
+          )
+        ].join('\n');
+        
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `comfort-tracker-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+      };
+
+      const submitEntry = () => {
+        const entry = {
+          id: Date.now(),
+          date: new Date().toISOString(),
+          ...formData,
+          compositeScore: ((formData.mealComfort + formData.afterEating) / 2).toFixed(1),
+        };
+        
+        const today = new Date().toDateString();
+        const filtered = entries.filter(e => new Date(e.date).toDateString() !== today);
+        saveEntries([...filtered, entry]);
+        
+        setFormData({
+          mealComfort: 5,
+          afterEating: 5,
+          regularity: null,
+          mealType: null,
+          tookSupplement: null,
+          note: '',
+        });
+        setCheckInStep(1);
+        setView('dashboard');
+      };
+
+      const calculateStreak = () => {
+        if (entries.length === 0) return 0;
+        const sorted = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
+        let streak = 0;
+        let checkDate = new Date();
+        checkDate.setHours(0, 0, 0, 0);
+        
+        for (const entry of sorted) {
+          const entryDate = new Date(entry.date);
+          entryDate.setHours(0, 0, 0, 0);
+          const diffDays = Math.floor((checkDate - entryDate) / (1000 * 60 * 60 * 24));
+          
+          if (diffDays <= 1) {
+            streak++;
+            checkDate = entryDate;
+          } else break;
+        }
+        return streak;
+      };
+
+      const getChartData = () => {
+        const days = [];
+        for (let i = 13; i >= 0; i--) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          date.setHours(0, 0, 0, 0);
+          
+          const dayEntries = entries.filter(e => {
+            const eDate = new Date(e.date);
+            eDate.setHours(0, 0, 0, 0);
+            return eDate.getTime() === date.getTime();
+          });
+          
+          const filteredEntries = filter === 'all' 
+            ? dayEntries
+            : dayEntries.filter(e => filter === 'with' ? e.tookSupplement : !e.tookSupplement);
+          
+          const avgScore = filteredEntries.length > 0
+            ? filteredEntries.reduce((sum, e) => sum + parseFloat(e.compositeScore), 0) / filteredEntries.length
+            : null;
+          
+          days.push({
+            day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+            date: date.getDate(),
+            score: avgScore,
+            hasEntry: dayEntries.length > 0,
+          });
+        }
+        return days;
+      };
+
+      const get7DayAverage = () => {
+        const last7 = entries
+          .filter(e => {
+            const date = new Date(e.date);
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return date >= weekAgo;
+          })
+          .filter(e => filter === 'all' || (filter === 'with' ? e.tookSupplement : !e.tookSupplement));
+        
+        if (last7.length === 0) return null;
+        return (last7.reduce((sum, e) => sum + parseFloat(e.compositeScore), 0) / last7.length).toFixed(1);
+      };
+
+      const todayHasEntry = entries.some(e => 
+        new Date(e.date).toDateString() === new Date().toDateString()
+      );
+
+      const streak = calculateStreak();
+      const chartData = getChartData();
+      const avg7Day = get7DayAverage();
+
+      // ============ CONSENT SCREEN ============
+      if (view === 'consent') {
+        return (
+          <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="bg-[#004D9D] p-6 text-white text-center">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">📊</span>
+              </div>
+              <h1 className="text-2xl font-bold">Comfort Tracker</h1>
+              <p className="opacity-80 text-sm mt-1">Personal wellness journaling</p>
+            </div>
+            
+            <div className="p-6">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                <p className="font-semibold text-amber-800 text-sm mb-2">⚠️ Important — Please Read</p>
+                <ul className="text-amber-700 text-sm space-y-2">
+                  <li>• This is a <strong>personal self-tracking tool</strong> for your own reflection.</li>
+                  <li>• It is <strong>not a medical device</strong> and does not diagnose, treat, cure, or prevent any disease.</li>
+                  <li>• <strong>Do not use in emergencies</strong> — call 911 or your healthcare provider.</li>
+                  <li>• Individual experiences vary. This tool does not predict outcomes.</li>
+                </ul>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <p className="font-semibold text-gray-700 text-sm mb-2">🔒 Your Privacy</p>
+                <ul className="text-gray-600 text-sm space-y-1">
+                  <li>• All data is stored <strong>locally on this device only</strong></li>
+                  <li>• Nothing is transmitted to Medisyn Labs or any third party</li>
+                  <li>• You can export or delete your data at any time</li>
+                  <li>• <strong>Do not enter</strong> diagnoses, medical record numbers, or sensitive health information</li>
+                </ul>
+              </div>
+              
+              <button
+                onClick={acceptConsent}
+                className="w-full bg-[#004D9D] hover:bg-blue-800 text-white font-semibold py-4 px-6 rounded-xl transition-colors"
+              >
+                I Understand — Start Tracking
+              </button>
+              
+              <p className="text-xs text-gray-400 text-center mt-4">
+                By continuing, you acknowledge you have read and understood this notice.
+              </p>
+            </div>
+          </div>
+        );
+      }
+
+      // ============ CHECK-IN FLOW ============
+      if (view === 'checkin') {
+        const totalSteps = 4;
+        const canProceed = {
+          1: formData.mealComfort !== null,
+          2: formData.afterEating !== null && formData.regularity !== null,
+          3: formData.mealType !== null && formData.tookSupplement !== null,
+          4: true,
+        };
+
+        return (
+          <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden min-h-[580px] flex flex-col">
+            <div className="bg-[#004D9D] px-6 py-4 text-white flex items-center justify-between">
+              <button 
+                onClick={() => { setView('dashboard'); setCheckInStep(1); }}
+                className="text-white/80 hover:text-white"
+              >
+                ← Back
+              </button>
+              <span className="font-semibold">Daily Check-In</span>
+              <span className="text-sm opacity-80">Step {checkInStep}/{totalSteps}</span>
+            </div>
+            
+            <div className="w-full bg-gray-100 h-1">
+              <div 
+                className="bg-[#009F60] h-1 transition-all duration-300" 
+                style={{ width: `${(checkInStep / totalSteps) * 100}%` }}
+              />
+            </div>
+
+            <div className="flex-1 p-6">
+              {checkInStep === 1 && (
+                <div className="fade-in">
+                  <h3 className="text-xl font-bold text-[#004D9D] mb-2">Meal Comfort</h3>
+                  <p className="text-gray-500 text-sm mb-8">How comfortable did you feel during your main meal today?</p>
+                  
+                  <div className="mb-8">
+                    <div className="flex justify-between mb-3">
+                      <span className="text-xs font-medium text-gray-400">Uncomfortable</span>
+                      <span className="text-3xl font-bold text-[#009F60]">{formData.mealComfort}</span>
+                      <span className="text-xs font-medium text-gray-400">Very Comfortable</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="10" 
+                      value={formData.mealComfort} 
+                      onChange={(e) => setFormData({...formData, mealComfort: parseInt(e.target.value)})}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between mt-1 text-xs text-gray-300">
+                      {[0,1,2,3,4,5,6,7,8,9,10].map(n => <span key={n}>{n}</span>)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {checkInStep === 2 && (
+                <div className="fade-in">
+                  <h3 className="text-xl font-bold text-[#004D9D] mb-2">After-Meal Comfort</h3>
+                  <p className="text-gray-500 text-sm mb-6">How did you feel 1-2 hours after eating?</p>
+                  
+                  <div className="mb-8">
+                    <div className="flex justify-between mb-3">
+                      <span className="text-xs font-medium text-gray-400">Heavy/Full</span>
+                      <span className="text-3xl font-bold text-[#009F60]">{formData.afterEating}</span>
+                      <span className="text-xs font-medium text-gray-400">Light/Easy</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="10" 
+                      value={formData.afterEating} 
+                      onChange={(e) => setFormData({...formData, afterEating: parseInt(e.target.value)})}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <h4 className="font-semibold text-gray-700 mb-3">Regularity today?</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { id: 'smooth', label: 'Smooth', icon: '✨' },
+                      { id: 'slow', label: 'Slow', icon: '🐢' },
+                      { id: 'urgent', label: 'Urgent', icon: '💨' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setFormData({...formData, regularity: opt.id})}
+                        className={`p-3 rounded-xl border-2 transition-all text-center ${
+                          formData.regularity === opt.id 
+                            ? 'border-[#009F60] bg-[#E6F7F0]' 
+                            : 'border-gray-100 hover:border-gray-200'
+                        }`}
+                      >
+                        <span className="text-2xl block mb-1">{opt.icon}</span>
+                        <span className="text-sm font-medium text-gray-700">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {checkInStep === 3 && (
+                <div className="fade-in">
+                  <h3 className="text-xl font-bold text-[#004D9D] mb-6">Today's Context</h3>
+                  
+                  <h4 className="font-semibold text-gray-700 mb-3">What type of meal?</h4>
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                    {[
+                      { id: 'light', label: 'Light', icon: '🥗' },
+                      { id: 'normal', label: 'Normal', icon: '🍽️' },
+                      { id: 'heavy', label: 'Rich/Heavy', icon: '🍔' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setFormData({...formData, mealType: opt.id})}
+                        className={`p-3 rounded-xl border-2 transition-all text-center ${
+                          formData.mealType === opt.id 
+                            ? 'border-[#004D9D] bg-[#E8F0F8]' 
+                            : 'border-gray-100 hover:border-gray-200'
+                        }`}
+                      >
+                        <span className="text-2xl block mb-1">{opt.icon}</span>
+                        <span className="text-sm font-medium text-gray-700">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <h4 className="font-semibold text-gray-700 mb-3">Did you take your supplement with this meal?</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setFormData({...formData, tookSupplement: true})}
+                      className={`p-4 rounded-xl border-2 transition-all text-center ${
+                        formData.tookSupplement === true 
+                          ? 'border-[#009F60] bg-[#E6F7F0]' 
+                          : 'border-gray-100 hover:border-gray-200'
+                      }`}
+                    >
+                      <span className="text-2xl block mb-1">💊</span>
+                      <span className="font-medium text-gray-700">Yes</span>
+                    </button>
+                    <button
+                      onClick={() => setFormData({...formData, tookSupplement: false})}
+                      className={`p-4 rounded-xl border-2 transition-all text-center ${
+                        formData.tookSupplement === false 
+                          ? 'border-gray-400 bg-gray-50' 
+                          : 'border-gray-100 hover:border-gray-200'
+                      }`}
+                    >
+                      <span className="text-2xl block mb-1">⏭️</span>
+                      <span className="font-medium text-gray-700">No</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {checkInStep === 4 && (
+                <div className="fade-in">
+                  <h3 className="text-xl font-bold text-[#004D9D] mb-2">Any Notes? (Optional)</h3>
+                  <p className="text-gray-500 text-sm mb-4">Add context for your own reference.</p>
+                  
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700">
+                    ⚠️ <strong>Do not include</strong> diagnoses, medical conditions, or sensitive health information.
+                  </div>
+                  
+                  <textarea
+                    value={formData.note}
+                    onChange={(e) => setFormData({...formData, note: e.target.value})}
+                    placeholder="e.g., 'Had pizza for dinner' or 'Busy day, ate late'"
+                    className="w-full p-4 border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-[#009F60] focus:border-transparent h-24"
+                    maxLength={200}
+                  />
+                  <div className="text-right text-xs text-gray-400 mt-1">{formData.note.length}/200</div>
+
+                  <div className="bg-gray-50 rounded-xl p-4 mt-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Today's Summary</p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>Meal Comfort: <strong>{formData.mealComfort}/10</strong></div>
+                      <div>After Eating: <strong>{formData.afterEating}/10</strong></div>
+                      <div>Regularity: <strong className="capitalize">{formData.regularity}</strong></div>
+                      <div>Meal Type: <strong className="capitalize">{formData.mealType}</strong></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 pt-0 flex gap-3">
+              {checkInStep > 1 && (
+                <button
+                  onClick={() => setCheckInStep(checkInStep - 1)}
+                  className="flex-1 py-3 rounded-xl border-2 border-gray-200 font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (checkInStep < totalSteps) {
+                    setCheckInStep(checkInStep + 1);
+                  } else {
+                    submitEntry();
+                  }
+                }}
+                disabled={!canProceed[checkInStep]}
+                className={`flex-1 py-3 rounded-xl font-semibold transition-colors ${
+                  canProceed[checkInStep]
+                    ? 'bg-[#004D9D] text-white hover:bg-blue-800'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                {checkInStep < totalSteps ? 'Next' : 'Save Entry'}
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // ============ DASHBOARD ============
+      return (
+        <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
+          <div className="bg-[#004D9D] p-6 text-white">
+            <h2 className="text-xl font-bold">Comfort Tracker</h2>
+            <p className="opacity-80 text-sm">Your personal patterns & observations</p>
+          </div>
+
+          <div className="p-6">
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="bg-[#E8F0F8] p-3 rounded-xl text-center">
+                <p className="text-2xl font-bold text-[#004D9D]">{streak}</p>
+                <p className="text-xs text-gray-500">Day Streak</p>
+              </div>
+              <div className="bg-[#E6F7F0] p-3 rounded-xl text-center">
+                <p className="text-2xl font-bold text-[#009F60]">{avg7Day || '—'}</p>
+                <p className="text-xs text-gray-500">7-Day Avg</p>
+              </div>
+              <div className="bg-gray-100 p-3 rounded-xl text-center">
+                <p className="text-2xl font-bold text-gray-700">{entries.length}</p>
+                <p className="text-xs text-gray-500">Total Logs</p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setView('checkin')}
+              disabled={todayHasEntry}
+              className={`w-full py-4 rounded-xl font-semibold shadow-md transition-all mb-6 ${
+                todayHasEntry 
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-[#004D9D] text-white hover:bg-blue-800'
+              }`}
+            >
+              {todayHasEntry ? '✓ Today Logged' : 'Log Today\'s Check-In'}
+            </button>
+
+            {entries.some(e => e.tookSupplement !== null) && (
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg mb-4">
+                {[
+                  { id: 'all', label: 'All Days' },
+                  { id: 'with', label: 'With Supplement' },
+                  { id: 'without', label: 'Without' },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFilter(f.id)}
+                    className={`flex-1 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+                      filter === f.id 
+                        ? 'bg-white shadow text-[#004D9D]' 
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {entries.length >= 2 ? (
+              <>
+                <h3 className="text-sm font-bold text-gray-700 mb-3">14-Day Comfort Trend</h3>
+                <div className="h-40 w-full mb-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData.filter(d => d.score !== null)}>
+                      <defs>
+                        <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#009F60" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#009F60" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="day" stroke="#9CA3AF" fontSize={11} tickLine={false} axisLine={false} />
+                      <YAxis hide domain={[0, 10]} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
+                        formatter={(value) => [`${value.toFixed(1)}/10`, 'Comfort']}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="score" 
+                        stroke="#009F60" 
+                        strokeWidth={2}
+                        fill="url(#colorScore)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-xs text-center text-gray-400 mb-6">
+                  Higher score = Better self-reported comfort
+                </p>
+              </>
+            ) : (
+              <div className="bg-gray-50 rounded-xl p-6 text-center mb-6">
+                <span className="text-3xl mb-2 block">📈</span>
+                <p className="text-gray-500 text-sm">Log at least 2 days to see your trend chart</p>
+              </div>
+            )}
+
+            {entries.length > 0 && (
+              <>
+                <h3 className="text-sm font-bold text-gray-700 mb-3">Recent Logs</h3>
+                <div className="space-y-2 mb-6 max-h-48 overflow-y-auto">
+                  {entries
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 5)
+                    .map(entry => (
+                      <div key={entry.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">
+                            {new Date(entry.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {entry.mealType} meal {entry.tookSupplement ? '• 💊' : ''}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-[#009F60]">{entry.compositeScore}</p>
+                          <p className="text-xs text-gray-400">comfort</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+
+            <div className="border-t border-gray-100 pt-4 flex gap-2">
+              <button
+                onClick={exportData}
+                disabled={entries.length === 0}
+                className="flex-1 py-2 px-3 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                📥 Export CSV
+              </button>
+              <button
+                onClick={clearAllData}
+                className="flex-1 py-2 px-3 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+              >
+                🗑️ Delete All Data
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 px-6 py-4 border-t border-gray-100">
+            <p className="text-xs text-gray-400 text-center">
+              *Scores are self-reported and for personal tracking only. Individual experiences vary. 
+              This tool is not intended to diagnose, treat, cure, or prevent any disease.
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<GallavanceComfortTracker />);
+  </script>
+</body>
+</html>
