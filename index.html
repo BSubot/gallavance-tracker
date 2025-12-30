@@ -16,12 +16,6 @@
   
   <!-- Recharts for the chart -->
     <script src="https://unpkg.com/recharts@1.8.5/umd/Recharts.min.js"></script>
-      <script>
-              // Create Recharts global alias after library loads
-              setTimeout(() => {
-                        window.Recharts = { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer };
-              }, 100);
-      </script><!-- Babel for JSX (dev only - in production you'd precompile) -->
       <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     body {
@@ -79,11 +73,9 @@
   
   <script type="text/babel">
     const { useState, useEffect } = React;
-    const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } = Recharts;
 
     const GallavanceComfortTracker = () => {
       // Core State
-      const [view, setView] = useState('consent');
       const [entries, setEntries] = useState([]);
       const [checkInStep, setCheckInStep] = useState(1);
       const [filter, setFilter] = useState('all');
